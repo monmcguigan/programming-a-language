@@ -1,0 +1,1 @@
+lazy val root = Project(id = "language", base = file("."))
