@@ -1,4 +1,4 @@
-import Expr._
+import Expr.*
 
 object Main extends App {
   /*
@@ -11,6 +11,11 @@ object Main extends App {
 
   val expr     = Add(Num(1), Add(Num(3), Num(4)))
   val exprBool = Cond(Bool(true), expr, Num(0))
-  println(pprint(exprBool))
-  println(Value.pprint(interpret(exprBool)))
+  val let      = Let("x", Num(2), Expr.Add(Ref("x"), Num(2)))
+  val fun      = Expr.Lambda("x", Add(Expr.Ref("x"), Num(1)))
+  val letFun   = Let("f", fun, Ref("f"))
+
+  val env = Env.empty
+  println(pprint(letFun))
+  println(Value.pprint(interpret(letFun, env)))
 }
