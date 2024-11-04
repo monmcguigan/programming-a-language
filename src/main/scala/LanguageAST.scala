@@ -8,6 +8,9 @@ enum Expr:
   case Ref(name: String)
   case Lambda(param: String, body: Expr)
   case Apply(func: Expr, arg: Expr)
+  case Eq(lhs: Expr, rhs: Expr)
+
+//  case LetRec()
 
 case class Env(values: Map[String, Value]):
   def bind(name: String, value: Value): Env = copy(values.updated(name, value))
@@ -22,14 +25,14 @@ enum Value:
 
   case Bool(b: Boolean)
 
-  case Lambda(param: String, body: Expr)
+  case Lambda(param: String, body: Expr, env: Env)
 
 object Value:
   def pprint(in: Value): String =
     in match
-      case Value.Num(i)       => i.toString
-      case Value.Bool(b)      => b.toString
-      case Lambda(name, body) => s"fun $name => ${Expr.pprint(body)}"
+      case Value.Num(i)          => i.toString
+      case Value.Bool(b)         => b.toString
+      case Lambda(name, body, _) => s"fun $name => ${Expr.pprint(body)}"
 
 object Expr:
   def pprint(in: Expr): String =
@@ -43,6 +46,15 @@ object Expr:
       case Expr.Let(name, value, body) => s"let $name = ${pprint(value)} in ${pprint(body)}"
       case Expr.Ref(name)              => name
       case Lambda(param, body)         => s"fun $param => ${pprint(body)}"
+      case Apply(func, arg)            => s"${pprint(func)} (${pprint(arg)})"
+      case Eq(lhs, rhs)                => s"${pprint(lhs)} == ${pprint(rhs)}"
+
+      /*
+      let y = 1 in
+        let f = fun x => x + y in
+          let y = 2 in
+            f 3
+       */
 
   def interpret(in: Expr, env: Env): Value =
     in match
@@ -65,12 +77,17 @@ object Expr:
         val newEnv = env.bind(name, interpret(value, env))
         interpret(body, newEnv)
       case Expr.Ref(name)          => env.lookup(name)
-      case Expr.Lambda(name, body) => Value.Lambda(name, body)
+      case Expr.Lambda(name, body) => Value.Lambda(name, body, env)
       case Expr.Apply(func, arg) =>
         interpret(func, env) match
-          case Value.Lambda(param, body) =>
+          case Value.Lambda(param, body, env2) =>
             val newEnv = env.bind(param, interpret(arg, env))
             interpret(body, newEnv)
           case other => sys.error(s"${Value.pprint(other)} is not a function")
+
+      case Expr.Eq(lhs, rhs) =>
+        (interpret(lhs, env), interpret(rhs, env)) match
+          case (Value.Num(a), Value.Num(b)) => Value.Bool(a == b)
+          case _                            => sys.error(s"Invalid types to compare ${pprint(lhs)} and ${pprint(rhs)}")
 
 // (if pred then fun x => x + 1 else fun x => x + 2)(3)
