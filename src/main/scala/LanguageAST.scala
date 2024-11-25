@@ -1,3 +1,5 @@
+import scala.collection.mutable
+
 enum Expr:
   case Num(i: Int)
   case Bool(b: Boolean)
@@ -9,17 +11,18 @@ enum Expr:
   case Lambda(param: String, body: Expr)
   case Apply(func: Expr, arg: Expr)
   case Eq(lhs: Expr, rhs: Expr)
+  case LetRec(name: String, value: Expr, body: Expr)
 
-//  case LetRec()
-
-case class Env(values: Map[String, Value]):
+case class Env(values: mutable.Map[String, Value]):
   def bind(name: String, value: Value): Env = copy(values.updated(name, value))
+
+  def set(name: String, value: Value): Unit = values.update(name, value)
   def lookup(name: String): Value = values.get(name) match
     case Some(value) => value
     case None        => sys.error(s"binding not found: $name")
 
 object Env:
-  def empty: Env = Env(Map.empty[String, Value])
+  def empty: Env = Env(mutable.Map.empty[String, Value])
 enum Value:
   case Num(i: Int)
 
@@ -48,7 +51,7 @@ object Expr:
       case Lambda(param, body)         => s"fun $param => ${pprint(body)}"
       case Apply(func, arg)            => s"${pprint(func)} (${pprint(arg)})"
       case Eq(lhs, rhs)                => s"${pprint(lhs)} == ${pprint(rhs)}"
-
+      case LetRec(name, value, body)   => s"let rec $name = ${pprint(value)} in ${pprint(body)}"
       /*
       let y = 1 in
         let f = fun x => x + y in
@@ -58,36 +61,54 @@ object Expr:
 
   def interpret(in: Expr, env: Env): Value =
     in match
-      case Expr.Num(i)  => Value.Num(i)
-      case Expr.Bool(b) => Value.Bool(b)
-      case Expr.Add(lhs, rhs) =>
-        (interpret(lhs, env), interpret(rhs, env)) match
-          case (Value.Num(l), Value.Num(r)) => Value.Num(l + r)
-          case _                            => sys.error(s"type error in add, expected Num & Num, got $lhs, $rhs")
-      case Expr.Sub(lhs, rhs) =>
-        (interpret(lhs, env), interpret(rhs, env)) match
-          case (Value.Num(l), Value.Num(r)) => Value.Num(l - r)
-          case _                            => sys.error(s"type error in sub, expected Num & Num, got $lhs, $rhs")
-      case Expr.Cond(pred, thenBranch, elseBranch) =>
-        interpret(pred, env) match
-          case Value.Bool(true)  => interpret(thenBranch, env)
-          case Value.Bool(false) => interpret(elseBranch, env)
-          case _                 => sys.error(s"Expected pred to be Bool got ${pprint(pred)}")
-      case Expr.Let(name, value, body) =>
-        val newEnv = env.bind(name, interpret(value, env))
+      case Expr.Num(i)                             => Value.Num(i)
+      case Expr.Bool(b)                            => Value.Bool(b)
+      case Expr.Lambda(name, body)                 => Value.Lambda(name, body, env)
+      case Expr.Add(lhs, rhs)                      => add(lhs, rhs, env)
+      case Expr.Sub(lhs, rhs)                      => sub(lhs, rhs, env)
+      case Expr.Cond(pred, thenBranch, elseBranch) => cond(pred, thenBranch, elseBranch, env)
+      case Expr.Eq(lhs, rhs)                       => eq(lhs, rhs, env)
+      case Expr.Ref(name)                          => env.lookup(name)
+      case Expr.Let(name, value, body)             => let(name, value, body, env)
+      case Expr.Apply(func, arg)                   => apply(func, arg, env)
+      case Expr.LetRec(name, value, body)          => letRec(name, value, body, env)
+
+  def let(name: String, value: Expr, body: Expr, env: Env): Value =
+    val v      = interpret(value, env)
+    val newEnv = env.bind(name, v)
+    interpret(body, newEnv)
+
+  def letRec(name: String, value: Expr, body: Expr, env: Env): Value =
+    val newEnv = env.bind(name, null)
+    val v      = interpret(value, newEnv)
+    newEnv.set(name, v)
+    interpret(body, newEnv)
+
+  def apply(function: Expr, arg: Expr, env: Env): Value =
+    interpret(function, env) match
+      case Value.Lambda(param, body, env2) =>
+        val a      = interpret(arg, env)
+        val newEnv = env2.bind(param, a)
         interpret(body, newEnv)
-      case Expr.Ref(name)          => env.lookup(name)
-      case Expr.Lambda(name, body) => Value.Lambda(name, body, env)
-      case Expr.Apply(func, arg) =>
-        interpret(func, env) match
-          case Value.Lambda(param, body, env2) =>
-            val newEnv = env.bind(param, interpret(arg, env))
-            interpret(body, newEnv)
-          case other => sys.error(s"${Value.pprint(other)} is not a function")
+      case other => sys.error(s"${Value.pprint(other)} is not a function")
 
-      case Expr.Eq(lhs, rhs) =>
-        (interpret(lhs, env), interpret(rhs, env)) match
-          case (Value.Num(a), Value.Num(b)) => Value.Bool(a == b)
-          case _                            => sys.error(s"Invalid types to compare ${pprint(lhs)} and ${pprint(rhs)}")
+  def eq(lhs: Expr, rhs: Expr, env: Env): Value =
+    (interpret(lhs, env), interpret(rhs, env)) match
+      case (Value.Num(a), Value.Num(b)) => Value.Bool(a == b)
+      case _                            => sys.error(s"Invalid types to compare ${pprint(lhs)} and ${pprint(rhs)}")
 
-// (if pred then fun x => x + 1 else fun x => x + 2)(3)
+  def cond(pred: Expr, thenBranch: Expr, elseBranch: Expr, env: Env): Value =
+    interpret(pred, env) match
+      case Value.Bool(true)  => interpret(thenBranch, env)
+      case Value.Bool(false) => interpret(elseBranch, env)
+      case _                 => sys.error(s"Expected pred to be Bool got ${pprint(pred)}")
+
+  def sub(lhs: Expr, rhs: Expr, env: Env): Value =
+    (interpret(lhs, env), interpret(rhs, env)) match
+      case (Value.Num(l), Value.Num(r)) => Value.Num(l - r)
+      case _                            => sys.error(s"type error in sub, expected Num & Num, got $lhs, $rhs")
+
+  def add(lhs: Expr, rhs: Expr, env: Env): Value =
+    (interpret(lhs, env), interpret(rhs, env)) match
+      case (Value.Num(l), Value.Num(r)) => Value.Num(l + r)
+      case _                            => sys.error(s"type error in add, expected Num & Num, got $lhs, $rhs")
