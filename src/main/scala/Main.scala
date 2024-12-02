@@ -74,8 +74,10 @@ object Main extends App {
       )
     )
 
-  println(pprint(thing))
-  println(Value.pprint(interpret(thing, env)))
+  
+
+  println(pprint(envCheck))
+  println(Value.pprint(interpret(envCheck, env)))
 }
 
 // case for needing stack env rather than map env
