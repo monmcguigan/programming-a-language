@@ -17,6 +17,7 @@ case class Env(values: mutable.Map[String, Value]):
   def bind(name: String, value: Value): Env = copy(values.updated(name, value))
 
   def set(name: String, value: Value): Unit = values.update(name, value)
+  
   def lookup(name: String): Value = values.get(name) match
     case Some(value) => value
     case None        => sys.error(s"binding not found: $name")
